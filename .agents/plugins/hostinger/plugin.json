@@ -1,0 +1,4 @@
+{
+  "name": "hostinger",
+  "description": "Hostinger integration for managing VPS, domains, DNS, and hosting deployments via MCP."
+}
