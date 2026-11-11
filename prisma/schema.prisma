@@ -1,0 +1,435 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Bot {
+  id               String               @id @default(uuid())
+  telegramBotId    BigInt?              @unique
+  name             String
+  username         String
+  tokenEnvVar      String               @default("TELEGRAM_BOT_TOKEN")
+  encryptedToken   String?              @db.Text
+  tokenLast4       String?
+  description      String?              @db.Text
+  isActive         Boolean              @default(true)
+  connectionStatus String               @default("STANDBY") // "CONNECTED" | "STANDBY" | "ERROR" | "DISCONNECTED"
+  lastError        String?              @db.Text
+  lastCheckedAt    DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  config           BotConfig?
+  buttons          BotButton[]
+  channels         BotChannel[]
+  posts            ChannelPost[]
+  deletions        ScheduledDeletion[]
+  users            TelegramUser[]
+  flows            BotFlow[]
+  flowEvents       BotFlowEvent[]
+  channelActivityEvents ChannelActivityEvent[]
+  campaigns             MarketingCampaign[]
+  campaignTouches       CampaignTouch[]
+  consentRecords        MarketingConsentRecord[]
+  auditLogs        AuditLog[]
+  staffAssignments StaffBotAssignment[]
+
+  @@map("bots")
+}
+
+model BotConfig {
+  id             String   @id @default(uuid())
+  botId          String   @unique
+  bot            Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  welcomeMessage String   @db.Text
+  menuConfig     Json?
+  updatedAt      DateTime @updatedAt
+
+  @@map("bot_configs")
+}
+
+model TelegramUser {
+  id           String   @id @default(uuid())
+  botId        String
+  bot          Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  telegramId   BigInt
+  telegramPhNo String?
+  firstName    String?
+  lastName     String?
+  username     String?
+  languageCode    String?
+  currentMenuId   String?  // Active menu node id (null or "root" = main menu)
+  currentNodeId   String?  // Active V2 graph node ID
+  navigationStack Json?    // JSON array of parent menu IDs: ["root", "submenu-id"]
+  flowVersion     Int?     // Version of published flow user is currently navigating
+  flowVariables   Json?    // User input collected variables { [varName: string]: string }
+  flowStepContext Json?    // Flow state context (e.g. waiting for text input, last prompt)
+  firstCampaignSource   String?
+  lastCampaignSource    String?
+  marketingConsent      String   @default("UNSPECIFIED") // "UNSPECIFIED" | "OPTED_IN" | "OPTED_OUT" | "REVOKED"
+  marketingConsentAt    DateTime?
+  marketingConsentSource String? // e.g. "COMMAND_OPTIN", "COMMAND_OPTOUT"
+  campaignTouches       CampaignTouch[]
+  consentRecords        MarketingConsentRecord[]
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+
+  @@unique([botId, telegramId])
+  @@index([botId])
+  @@map("telegram_users")
+}
+
+model AdminUser {
+  id                 String               @id @default(uuid())
+  email              String               @unique
+  passwordHash       String
+  role               String               @default("SUPER_ADMIN") // SUPER_ADMIN | ADMIN | EDITOR | VIEWER
+  isActive           Boolean              @default(true)
+  mustChangePassword Boolean              @default(false)
+  tokenVersion       Int                  @default(1)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  auditLogs          AuditLog[]
+  staffAssignments   StaffBotAssignment[]
+  storedMedia        StoredMedia[]
+  publishedFlows     BotFlow[]            @relation("PublishedFlows")
+  createdTemplates   BotFlowTemplate[]
+  createdCampaigns   MarketingCampaign[]
+
+  @@map("admin_users")
+}
+
+model StaffBotAssignment {
+  id         String    @id @default(uuid())
+  userId     String
+  user       AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  botId      String
+  bot        Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  canPublish Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, botId])
+  @@index([botId])
+  @@index([userId])
+  @@map("staff_bot_assignments")
+}
+
+model StoredMedia {
+  id              String     @id @default(uuid())
+  botId           String?
+  storageProvider String     @default("local") // "local" | "s3"
+  storageKey      String     @unique
+  originalName    String?
+  mimeType        String
+  sizeBytes       Int
+  isPrivate       Boolean    @default(true)
+  uploadedById    String?
+  uploadedBy      AdminUser? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([botId])
+  @@index([uploadedById])
+  @@map("stored_media")
+}
+
+model AuditLog {
+  id          String     @id @default(uuid())
+  adminUserId String?
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+  botId       String?
+  bot         Bot?       @relation(fields: [botId], references: [id], onDelete: SetNull)
+  action      String
+  details     Json?
+  createdAt   DateTime   @default(now())
+
+  @@index([botId])
+  @@map("audit_logs")
+}
+
+model BotButton {
+  id                String   @id @default(uuid())
+  botId             String
+  bot               Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  label             String
+  actionType        String   @default("SEND_TEXT") // "SEND_TEXT" | "REQUEST_CONTACT"
+  replyText         String?  @db.Text
+  autoDeleteReply   Boolean  @default(false)
+  deleteAfterSeconds Int     @default(30)
+  isEnabled         Boolean  @default(true)
+  order             Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([botId])
+  @@map("bot_buttons")
+}
+
+model ScheduledDeletion {
+  id         String   @id @default(uuid())
+  botId      String
+  bot        Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  chatId     String
+  messageId  Int
+  deleteAt   DateTime
+  status     String   @default("PENDING") // "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED"
+  retryCount Int      @default(0)
+  lastError  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([botId])
+  @@index([status, deleteAt])
+  @@map("scheduled_deletions")
+}
+
+model BotChannel {
+  id             String   @id @default(uuid())
+  botId          String
+  bot            Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name           String
+  telegramChatId String
+  inviteLink     String
+  buttonLabel    String
+  isRequired     Boolean  @default(true)
+  isEnabled      Boolean  @default(true)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  posts          ChannelPost[]
+  activityEvents ChannelActivityEvent[]
+  targetCampaigns MarketingCampaign[]
+
+  @@index([botId])
+  @@map("bot_channels")
+}
+
+model ChannelPost {
+  id                 String      @id @default(uuid())
+  botId              String
+  bot                Bot         @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channelId          String
+  channel            BotChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  postType           String      @default("TEXT") // "TEXT" | "IMAGE"
+  content            String      @db.Text
+  mediaPath          String?
+  mediaOriginalName  String?
+  mediaMimeType      String?
+  mediaSizeBytes     Int?
+  buttonsConfig      Json?
+  disableNotification Boolean    @default(false)
+  hasSpoiler          Boolean    @default(false)
+  sendAsDocument      Boolean    @default(false)
+  status              String          @default("DRAFT") // "DRAFT" | "SCHEDULED" | "SENDING" | "PUBLISHED" | "PARTIAL" | "FAILED" | "UNKNOWN" | "CANCELLED"
+  scheduledAt         DateTime?
+  scheduledTimezone   String?
+  scheduledByUserId   String?
+  claimLeaseExpiresAt DateTime?
+  claimWorkerId       String?
+  retryCount          Int             @default(0)
+  telegramMessageId   Int?
+  albumMessageIds     Json?
+  buttonMessageId     Int?
+  lastError           String?         @db.Text
+  sentAt              DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  albumItems          PostAlbumItem[]
+
+  @@index([botId])
+  @@index([channelId])
+  @@index([status])
+  @@index([status, scheduledAt])
+  @@map("channel_posts")
+}
+
+model PostAlbumItem {
+  id           String      @id @default(uuid())
+  postId       String
+  post         ChannelPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mediaType    String      // "IMAGE" | "VIDEO"
+  filePath     String
+  originalName String?
+  mimeType     String?
+  sizeBytes    Int?
+  order        Int         @default(0)
+  hasSpoiler   Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([postId])
+  @@index([postId, order])
+  @@map("post_album_items")
+}
+
+model TelegramUpdateLog {
+  id         String   @id @default(uuid())
+  botId      String
+  updateId   BigInt
+  status     String   @default("PROCESSING") // "PROCESSING" | "COMPLETED" | "FAILED"
+  lastError  String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([botId, updateId])
+  @@index([botId, status])
+  @@map("telegram_update_logs")
+}
+
+model LoginRateLimit {
+  id           String    @id @default(uuid())
+  clientKey    String    @unique
+  failures     Int       @default(0)
+  blockedUntil DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([clientKey])
+  @@map("login_rate_limits")
+}
+
+model BotFlow {
+  id            String     @id @default(uuid())
+  botId         String
+  bot           Bot        @relation(fields: [botId], references: [id], onDelete: Cascade)
+  version       Int        @default(1)
+  status        String     @default("DRAFT") // "DRAFT" | "PUBLISHED" | "ARCHIVED"
+  name          String?
+  structure     Json       // Complete hierarchical flow definition: rootMenu, submenus
+  publishedAt   DateTime?
+  publishedById String?
+  publishedBy   AdminUser? @relation("PublishedFlows", fields: [publishedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([botId, version])
+  @@index([botId, status])
+  @@map("bot_flows")
+}
+
+model BotFlowTemplate {
+  id          String     @id @default(uuid())
+  name        String
+  description String?    @db.Text
+  category    String     @default("GENERAL") // "GENERAL" | "SUPPORT" | "ONBOARDING" | "CUSTOM"
+  structure   Json       // Complete V2 FlowGraph definition: nodes, edges, viewport
+  createdById String?
+  createdBy   AdminUser? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([category])
+  @@map("bot_flow_templates")
+}
+
+model BotFlowEvent {
+  id          String   @id @default(uuid())
+  botId       String
+  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  flowVersion Int
+  telegramId  BigInt
+  nodeId      String
+  eventType   String   // "START" | "NODE_VISIT" | "BUTTON_CLICK" | "INPUT_SUBMIT" | "COMPLETE" | "DROP_OFF"
+  actionLabel String?  // Button label, branch choice, or variable name (NEVER raw user input or phone numbers!)
+  updateId    BigInt?  // For deduplication against duplicate Telegram deliveries
+  createdAt   DateTime @default(now())
+
+  @@index([botId, flowVersion])
+  @@index([botId, eventType])
+  @@index([botId, telegramId])
+  @@index([botId, updateId])
+  @@index([createdAt])
+  @@map("bot_flow_events")
+}
+
+model ChannelActivityEvent {
+  id             String      @id @default(uuid())
+  botId          String
+  bot            Bot         @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channelId      String?
+  channel        BotChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  telegramChatId String
+  channelTitle   String?
+  telegramUserId BigInt
+  userFirstName  String?
+  userLastName   String?
+  username       String?
+  actorUserId    BigInt?
+  actorUsername  String?
+  eventType      String      // "JOINED" | "LEFT" | "MEMBERSHIP_CHECK" | "CHANNEL_SELECTED"
+  status         String?     // "member" | "administrator" | "creator" | "restricted" | "left" | "kicked" | "joined" | "not_joined" | "unable_to_verify"
+  source         String      // "TELEGRAM_UPDATE" | "FLOW_CHECK" | "FLOW_SELECTION" | "MANUAL_CHECK"
+  updateId       BigInt?
+  details        Json?
+  createdAt      DateTime    @default(now())
+
+  @@unique([botId, updateId])
+  @@index([botId, createdAt])
+  @@index([channelId, createdAt])
+  @@index([telegramUserId])
+  @@index([eventType])
+  @@map("channel_activity_events")
+}
+
+model MarketingCampaign {
+  id              String          @id @default(uuid())
+  botId           String
+  bot             Bot             @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name            String
+  slug            String          // Unique alphanumeric per bot, used in ?start=c_<slug>
+  description     String?         @db.Text
+  targetChannelId String?
+  targetChannel   BotChannel?     @relation(fields: [targetChannelId], references: [id], onDelete: SetNull)
+  clicksCount     Int             @default(0)
+  uniqueStartsCount Int           @default(0)
+  isActive        Boolean         @default(true)
+  createdById     String?
+  createdBy       AdminUser?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  touches         CampaignTouch[]
+
+  @@unique([botId, slug])
+  @@index([botId])
+  @@map("marketing_campaigns")
+}
+
+model CampaignTouch {
+  id              String            @id @default(uuid())
+  campaignId      String
+  campaign        MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  botId           String
+  bot             Bot               @relation(fields: [botId], references: [id], onDelete: Cascade)
+  telegramUserId  BigInt
+  telegramUser    TelegramUser?     @relation(fields: [botId, telegramUserId], references: [botId, telegramId], onDelete: Cascade)
+  isNewUser       Boolean           @default(false)
+  touchType       String            @default("FIRST_TOUCH") // "FIRST_TOUCH" | "RETURN_TOUCH"
+  createdAt       DateTime          @default(now())
+
+  @@index([campaignId, createdAt])
+  @@index([botId, telegramUserId])
+  @@map("campaign_touches")
+}
+
+model MarketingConsentRecord {
+  id              String        @id @default(uuid())
+  botId           String
+  bot             Bot           @relation(fields: [botId], references: [id], onDelete: Cascade)
+  telegramUserId  BigInt
+  telegramUser    TelegramUser? @relation(fields: [botId, telegramUserId], references: [botId, telegramId], onDelete: Cascade)
+  consentStatus   String        // "OPTED_IN" | "OPTED_OUT" | "REVOKED"
+  purpose         String        @default("GENERAL_MARKETING")
+  source          String        // "COMMAND_OPTIN" | "COMMAND_OPTOUT" | "FLOW_INTERACTION" | "ADMIN_PANEL"
+  details         Json?
+  createdAt       DateTime      @default(now())
+
+  @@index([botId, telegramUserId])
+  @@index([botId, consentStatus])
+  @@map("marketing_consent_records")
+}
+
+

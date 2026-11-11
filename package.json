@@ -1,0 +1,47 @@
+{
+  "name": "backstage",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram Bot Backstage - Local MVP",
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start",
+    "start:local": "next start -H 127.0.0.1",
+    "bot": "tsx src/bot/index.ts",
+    "scheduler": "tsx src/worker/scheduler-worker.ts",
+    "admin:password": "tsx scripts/update-admin-password.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@prisma/client": "^6.4.1",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.35.0",
+    "jose": "^6.0.8",
+    "next": "^14.2.24",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "reactflow": "^11.11.4"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.17.24",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
+    "prisma": "^6.4.1",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8",
+    "webpack-retry-chunk-load-plugin": "^3.1.1"
+  }
+}
